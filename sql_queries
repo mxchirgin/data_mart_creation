@@ -57,7 +57,7 @@ sl.* from chirgin.sales sl),
 --выполняем группировки, для удобства - через оконные функции
 prep as(select
 sl.*,
-row_number() over(partition by sl.salesman_id,sl.period_start order by sl.final_price-coalesce(it.price*sl.quantity, sv.price*sl.quantity) ) as overcharge,
+row_number() over(partition by sl.salesman_id,sl.period_start order by sl.final_price-coalesce(it.price*sl.quantity, sv.price*sl.quantity) desc ) as overcharge,
 max(sl.final_price/(sl.final_price-coalesce(it.price*sl.quantity, sv.price*sl.quantity))) over(partition by sl.salesman_id,sl.period_start order by 	sl.final_price/(sl.final_price-coalesce(it.price*sl.quantity, sv.price*sl.quantity)))		as overcharge_pct,	
 sum(final_price) over (partition by sl.salesman_id,sl.period_start order by salesman_id) as sum_period,
 count(*) over (partition by sl.salesman_id,sl.period_start order by salesman_id) as count_period
@@ -96,7 +96,7 @@ sl.* from chirgin.sales sl),
 
 prep as(select
 sl.*,
-row_number() over(partition by sl.salesman_id,sl.period_start order by sl.final_price-coalesce(it.price*sl.quantity, sv.price*sl.quantity) ) as overcharge,
+row_number() over(partition by sl.salesman_id,sl.period_start order by sl.final_price-coalesce(it.price*sl.quantity, sv.price*sl.quantity) desc ) as overcharge,
 max(sl.final_price/(sl.final_price-coalesce(it.price*sl.quantity, sv.price*sl.quantity))) over(partition by sl.salesman_id,sl.period_start order by 	sl.final_price/(sl.final_price-coalesce(it.price*sl.quantity, sv.price*sl.quantity)))		as overcharge_pct,	
 sum(final_price) over (partition by sl.salesman_id,sl.period_start order by salesman_id) as sum_period,
 count(*) over (partition by sl.salesman_id,sl.period_start order by salesman_id) as count_period
@@ -121,4 +121,6 @@ join chirgin.department d on sm.department_id=d.department_id
 join chirgin.salesman cm on d.dep_chif_id=cm.id
 where sl.overcharge=1
 order by sm.fio , sl.period_start;
+
+--используем load_to_csv.py чтобы выгрузить данные в csv
 						   
