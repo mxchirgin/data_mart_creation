@@ -1,0 +1,124 @@
+--сначала создадим исходные таблички измерений и фактов
+create table chirgin.sales (sale_date date, 
+						   salesman_id numeric(10),
+						   item_id varchar(10),
+						   quantity numeric(10),
+						   final_price numeric(15));
+
+create table chirgin.items (id varchar(10),
+						   name varchar(1000),
+						   price numeric(15),
+						   sdate date,
+						   edate date,
+						   is_actual numeric(1));
+						   
+
+create table chirgin.services (id varchar(10),
+						   name varchar(1000),
+						   price numeric(15),
+						   sdate date,
+						   edate date,
+						   is_actual numeric(1));
+						   
+create table chirgin.salesman (id numeric(10),
+						   name varchar(1000),
+						   department_id numeric(4));
+						   
+create table chirgin.department (filial_id numeric(4),
+						   department_id numeric(4),
+							  dep_chif_id numeric(10));
+
+/*создадим итоговую витрину. Можно создать через "create table as select.." 
+Но поскольку ТЗ разделил DDL и DML то сделаем отдельно*/
+create table chirgin.result (period_type varchar(20),
+							start_date timestamp,
+							 end_date timestamp,
+							 salesman_fio varchar(1000),
+							 chif_fio varchar(1000),
+							 sales_count bigint,
+							 sales_sum numeric(20),
+							 max_overcharge_item varchar(10),
+							 max_overcharge_pct numeric(10,5)
+							);
+
+--перед выполнением этих команд необходимо выполнить загрузку данных. Для этого подготовлен скрипт xlsx_to_sql.py
+
+--вставляем расчет с детализацией по неделям
+insert into chirgin.result(period_type,start_date,
+						  end_date, salesman_fio,
+						  chif_fio, sales_count,
+						  sales_sum,max_overcharge_item,
+						  max_overcharge_pct)
+						  
+--выбираем уровень детализации
+with 
+sl_period as(select date_trunc('week', sale_date::timestamp) period_start,
+sl.* from chirgin.sales sl),
+--выполняем группировки, для удобства - через оконные функции
+prep as(select
+sl.*,
+row_number() over(partition by sl.salesman_id,sl.period_start order by sl.final_price-coalesce(it.price*sl.quantity, sv.price*sl.quantity) ) as overcharge,
+max(sl.final_price/(sl.final_price-coalesce(it.price*sl.quantity, sv.price*sl.quantity))) over(partition by sl.salesman_id,sl.period_start order by 	sl.final_price/(sl.final_price-coalesce(it.price*sl.quantity, sv.price*sl.quantity)))		as overcharge_pct,	
+sum(final_price) over (partition by sl.salesman_id,sl.period_start order by salesman_id) as sum_period,
+count(*) over (partition by sl.salesman_id,sl.period_start order by salesman_id) as count_period
+from sl_period sl
+left join chirgin.items it
+on sl.item_id=it.id and sl.sale_date between it.sdate and it.edate
+left join chirgin.services sv
+on sl.item_id=sv.id and sl.sale_date between sv.sdate and sv.edate)
+
+select 'week' as period_type, -- изменить в случае изменения детализации
+period_start as start_date,
+period_start + interval'6 days' as end_date, -- изменить в случае изменения детализации
+sm.fio as salesman_fio,
+cm.fio as chif_fio,
+count_period as sales_count,
+sum_period as sales_sum,
+sl.item_id as max_overcharge_item,
+overcharge_pct as max_overcharge_pct
+from prep sl
+join chirgin.salesman sm on sl.salesman_id=sm.id
+join chirgin.department d on sm.department_id=d.department_id
+join chirgin.salesman cm on d.dep_chif_id=cm.id
+where sl.overcharge=1
+order by sm.fio , sl.period_start;
+
+--вставляем расчет с детализацией до месяца
+insert into chirgin.result(period_type,start_date,
+						  end_date, salesman_fio,
+						  chif_fio, sales_count,
+						  sales_sum,max_overcharge_item,
+						  max_overcharge_pct)
+--меняем период на месяц
+with 
+sl_period as(select date_trunc('month', sale_date::timestamp) period_start,
+sl.* from chirgin.sales sl),
+
+prep as(select
+sl.*,
+row_number() over(partition by sl.salesman_id,sl.period_start order by sl.final_price-coalesce(it.price*sl.quantity, sv.price*sl.quantity) ) as overcharge,
+max(sl.final_price/(sl.final_price-coalesce(it.price*sl.quantity, sv.price*sl.quantity))) over(partition by sl.salesman_id,sl.period_start order by 	sl.final_price/(sl.final_price-coalesce(it.price*sl.quantity, sv.price*sl.quantity)))		as overcharge_pct,	
+sum(final_price) over (partition by sl.salesman_id,sl.period_start order by salesman_id) as sum_period,
+count(*) over (partition by sl.salesman_id,sl.period_start order by salesman_id) as count_period
+from sl_period sl
+left join chirgin.items it
+on sl.item_id=it.id and sl.sale_date between it.sdate and it.edate
+left join chirgin.services sv
+on sl.item_id=sv.id and sl.sale_date between sv.sdate and sv.edate)
+
+select 'month' as period_type, --меняем период на месяц
+period_start as start_date,
+period_start +interval'1 month' - interval'1 days' as end_date, --ставим алгоритм получения последнего дня месяца
+sm.fio as salesman_fio,
+cm.fio as chif_fio,
+count_period as sales_count,
+sum_period as sales_sum,
+sl.item_id as max_overcharge_item,
+overcharge_pct as max_overcharge_pct
+from prep sl
+join chirgin.salesman sm on sl.salesman_id=sm.id
+join chirgin.department d on sm.department_id=d.department_id
+join chirgin.salesman cm on d.dep_chif_id=cm.id
+where sl.overcharge=1
+order by sm.fio , sl.period_start;
+						   
